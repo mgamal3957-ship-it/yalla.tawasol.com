@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>يلا تواصل</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<style>
+*{box-sizing:border-box;font-family:system-ui,Tahoma,sans-serif}
+body{margin:0;background:#0f172a;color:#fff;min-height:100vh;display:flex;justify-content:center}
+.box{width:100%;max-width:480px;padding:20px}
+.card{background:#1e293b;padding:20px;border-radius:16px;margin-top:30px}
+h1{text-align:center;color:#22c55e}
+input{width:100%;padding:13px;margin:8px 0;border-radius:10px;border:none;outline:none;font-size:16px;background:#0f172a;color:#fff;border:1px solid #334155}
+button{width:100%;padding:13px;background:#22c55e;border:none;border-radius:10px;font-size:18px;font-weight:bold;cursor:pointer;color:#000}
+button:active{opacity:.8}
+#msg{color:#f87171;text-align:center;min-height:22px;margin-top:8px}
+#chat{display:none}
+#messages{height:55vh;overflow-y:auto;background:#0f172a;border-radius:12px;padding:10px;margin:12px 0;display:flex;flex-direction:column;gap:8px}
+.m{background:#334155;padding:10px;border-radius:10px;max-width:85%}
+.m.me{background:#22c55e;color:#000;align-self:flex-end}
+.m small{display:block;opacity:.7;font-size:11px}
+.row{display:flex;gap:8px}
+.row input{flex:1}
+.row button{width:80px}
+.top{display:flex;justify-content:space-between;align-items:center}
+.top button{width:auto;padding:8px 14px;background:#ef4444;color:#fff}
+</style>
+</head>
+<body>
+<div class="box">
+
+<!-- صفحة الدخول -->
+<div id="loginBox" class="card">
+<h1>يلا تواصل 💬</h1>
+<input id="phone" placeholder="رقم الموبايل" inputmode="numeric">
+<input id="name" placeholder="الاسم">
+<input id="pass" type="password" placeholder="كلمة السر">
+<button onclick="login()">دخول</button>
+<div id="msg"></div>
+</div>
+
+<!-- صفحة الشات -->
+<div id="chat" class="card">
+<div class="top">
+<b id="myName"></b>
+<button onclick="logout()">خروج</button>
+</div>
+<div id="messages"></div>
+<div class="row">
+<input id="text" placeholder="اكتب رسالة...">
+<button onclick="sendMsg()">إرسال</button>
+</div>
+</div>
+
+</div>
+
+<script>
+// ============ حط الـ Config بتاعك هنا ============
+const firebaseConfig = {
+  apiKey: "PUT_YOUR_API_KEY",
+  authDomain: "PUT_YOUR_AUTH_DOMAIN",
+  projectId: "PUT_YOUR_PROJECT_ID",
+  storageBucket: "PUT_YOUR_STORAGE_BUCKET",
+  messagingSenderId: "PUT_YOUR_SENDER_ID",
+  appId: "PUT_YOUR_APP_ID"
+};
+// ===============================================
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+let myId = "";
+let myName = "";
+
+function showError(t){
+  document.getElementById("msg").innerText = t;
+  alert(t);
+}
+
+async function login(){
+  const phone = document.getElementById("phone").value.trim();
+  const name = document.getElementById("name").value.trim();
+  const pass = document.getElementById("pass").value.trim();
+  document.getElementById("msg").innerText = "";
+
+  if(!phone || !name || !pass){
+    showError("اكتب الرقم والاسم وكلمة السر");
+    return;
+  }
+
+  const userId = phone + "_" + name;
+  document.getElementById("msg").innerText = "جاري الدخول...";
+
+  try{
+    const doc = await db.collection("users").doc(userId).get();
+
+    if(doc.exists){
+      const data = doc.data();
+      if(data.pass && data.pass !== pass){
+        showError("كلمة السر غلط");
+        return;
+      }
+      // لو الحساب قديم من غير باسورد، نضيفله الباسورد
+      if(!data.pass){
+        await db.collection("users").doc(userId).update({pass: pass});
+      }
+    } else {
+      // حساب جديد
+      await db.collection("users").doc(userId).set({
+        phone: phone,
+        name: name,
+        pass: pass,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
+
+    myId = userId;
+    myName = name;
+    localStorage.setItem("yalla_user", userId);
+    localStorage.setItem("yalla_name", name);
+    openChat();
+
+  }catch(e){
+    console.log(e);
+    showError("في مشكلة في الاتصال: " + e.message);
+  }
+}
+
+function openChat(){
+  document.getElementById("loginBox").style.display = "none";
+  document.getElementById("chat").style.display = "block";
+  document.getElementById("myName").innerText = "أهلاً " + myName;
+  loadMessages();
+}
+
+function logout(){
+  localStorage.removeItem("yalla_user");
+  localStorage.removeItem("yalla_name");
+  location.reload();
+}
+
+function loadMessages(){
+  db.collection("messages").orderBy("createdAt","asc").onSnapshot((snap)=>{
+    const box = document.getElementById("messages");
+    box.innerHTML = "";
+    snap.forEach((d)=>{
+      const m = d.data();
+      const div = document.createElement("div");
+      div.className = "m" + (m.senderId === myId ? " me" : "");
+      div.innerHTML = "<b>" + (m.senderName||"") + "</b><small>" + (m.text||"") + "</small>";
+      box.appendChild(div);
+    });
+    box.scrollTop = box.scrollHeight;
+  }, (err)=>{
+    alert("مشكلة في تحميل الرسائل: " + err.message);
+  });
+}
+
+async function sendMsg(){
+  const t = document.getElementById("text").value.trim();
+  if(!t) return;
+  document.getElementById("text").value = "";
+  try{
+    await db.collection("messages").add({
+      text: t,
+      senderId: myId,
+      senderName: myName,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }catch(e){
+    alert("مشكلة في الإرسال: " + e.message);
+  }
+}
+
+// لو كان داخل قبل كده
+window.onload = function(){
+  const saved = localStorage.getItem("yalla_user");
+  const savedName = localStorage.getItem("yalla_name");
+  if(saved && savedName){
+    myId = saved;
+    myName = savedName;
+    openChat();
+  }
+};
+</script>
+</body>
+</html>
